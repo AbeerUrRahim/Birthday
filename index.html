@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A Surprise for Abrish!</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Parisienne&family=Quicksand:wght@300;500&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: 'Quicksand', sans-serif;
+            color: #fff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%); /* Initial romantic gradient */
+            perspective: 1000px;
+        }
+
+        #start-screen {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle, rgba(255,223,235,0.8) 0%, rgba(255,182,193,0.9) 30%, rgba(221,160,221,1) 100%),
+                        url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><text y="50%" dy="0.35em" text-anchor="middle" font-size="80" fill="rgba(255,255,255,0.1)">💖</text></svg>');
+            background-size: cover, 100px 100px;
+            animation: pulseBackground 10s infinite alternate;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 100;
+            opacity: 1;
+            transition: opacity 1.5s ease-out;
+        }
+
+        @keyframes pulseBackground {
+            0% { background-color: #ffdde1; }
+            100% { background-color: #ee9ca7; }
+        }
+
+        #surprise-button {
+            padding: 20px 40px;
+            font-size: 1.8em;
+            font-family: 'Parisienne', cursive;
+            color: #fff;
+            background: linear-gradient(135deg, #ff758c 0%, #ff7eb3 100%);
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 10px 25px rgba(255, 105, 180, 0.5), 0 0 15px rgba(255,255,255,0.5) inset;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            animation: floatButton 3s infinite ease-in-out;
+        }
+
+        #surprise-button:hover {
+            transform: scale(1.1) translateY(-5px);
+            box-shadow: 0 15px 35px rgba(255, 105, 180, 0.7), 0 0 20px rgba(255,255,255,0.7) inset;
+        }
+        
+        @keyframes floatButton {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0.5);
+            font-size: 3em;
+            font-family: 'Parisienne', cursive;
+            color: #fff;
+            text-shadow: 0 0 10px #ff69b4, 0 0 20px #ff69b4, 0 0 30px #ffc0cb, 0 0 40px #ffc0cb;
+            opacity: 0;
+            transition: opacity 1s ease-in-out, transform 1s ease-in-out;
+            z-index: 50;
+            text-align: center;
+            pointer-events: none; /* Allow clicks to pass through to canvas */
+        }
+
+        .message.visible {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
+        }
+        
+        #birthday-message { top: 20%; }
+        #gift-message { top: 30%; }
+        #final-message { top: 70%; }
+
+        #three-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            opacity: 0;
+            transition: opacity 1.5s ease-in;
+        }
+        #three-canvas.visible {
+            opacity: 1;
+        }
+
+    </style>
+</head>
+<body>
+    <div id="start-screen">
+        <button id="surprise-button">Click Me for a Surprise</button>
+    </div>
+
+    <div id="birthday-message" class="message">Happy Birthday Abrish!</div>
+    <div id="gift-message" class="message">Click the Gift Box!</div>
+    <div id="final-message" class="message">This is for you, love.</div>
+
+    <canvas id="three-canvas"></canvas>
+    <audio id="bg-music" src="music.mp3" loop></audio>
+
+    <script>
+        // --- Global Variables ---
+        let scene, camera, renderer, clock;
+        let cake, cakeSlice, giftBox, lid, flowerBouquet;
+        let currentStage = 0; // 0: start, 1: cake, 2: gift intro, 3: gift open, 4: flowers, 5: final
+        let animationProgress = 0;
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        // --- DOM Elements ---
+        const startScreen = document.getElementById('start-screen');
+        const surpriseButton = document.getElementById('surprise-button');
+        const birthdayMessage = document.getElementById('birthday-message');
+        const giftMessage = document.getElementById('gift-message');
+        const finalMessage = document.getElementById('final-message');
+        const audioElement = document.getElementById('bg-music');
+        const threeCanvas = document.getElementById('three-canvas');
+
+        // --- Event Listeners ---
+        surpriseButton.addEventListener('click', startSurprise);
+        window.addEventListener('resize', onWindowResize, false);
+        threeCanvas.addEventListener('click', onCanvasClick, false);
+
+        // --- Initialization ---
+        function initThree() {
+            clock = new THREE.Clock();
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x4a004a); // Dark romantic purple
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.z = 15;
+            camera.position.y = 5;
+
+            renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+
+            // Lights
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8); // Soft white light
+            scene.add(ambientLight);
+
+            const pointLight = new THREE.PointLight(0xffd1dc, 1.2, 100); // Soft pink point light
+            pointLight.position.set(5, 15, 10);
+            pointLight.castShadow = true;
+            scene.add(pointLight);
+
+            const directionalLight = new THREE.DirectionalLight(0xffe4e1, 0.7); // Misty rose
+            directionalLight.position.set(-10, 10, 5);
+            directionalLight.castShadow = true;
+            scene.add(directionalLight);
+            
+            // Ground plane for shadows
+            const planeGeometry = new THREE.PlaneGeometry(50, 50);
+            const planeMaterial = new THREE.ShadowMaterial({ opacity: 0.3 });
+            const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+            plane.rotation.x = -Math.PI / 2;
+            plane.position.y = -5; // Adjust based on cake/gift position
+            plane.receiveShadow = true;
+            scene.add(plane);
+
+            animate();
+        }
+
+        // --- Stage Management ---
+        function startSurprise() {
+            startScreen.style.opacity = '0';
+            setTimeout(() => { startScreen.style.display = 'none'; }, 1500);
+            
+            audioElement.play().catch(error => console.error("Audio play failed:", error));
+            
+            threeCanvas.classList.add('visible');
+            if (!renderer) initThree(); // Initialize Three.js only once
+            
+            currentStage = 1;
+            createCake();
+            setTimeout(() => { birthdayMessage.classList.add('visible'); }, 500);
+        }
+
+        // --- Object Creation ---
+        function createCake() {
+            // Main cake body
+            const cakeMaterial = new THREE.MeshStandardMaterial({ color: 0xffb6c1, roughness: 0.3, metalness: 0.1 }); // LightPink
+            const icingMaterial = new THREE.MeshStandardMaterial({ color: 0xfff0f5, roughness: 0.2, metalness: 0.0 }); // LavenderBlush (for icing)
+
+            cake = new THREE.Group();
+            
+            const layer1Geom = new THREE.CylinderGeometry(3, 3, 1.5, 32);
+            const layer1 = new THREE.Mesh(layer1Geom, cakeMaterial);
+            layer1.castShadow = true;
+            layer1.receiveShadow = true;
+            cake.add(layer1);
+
+            const layer2Geom = new THREE.CylinderGeometry(2.5, 2.5, 1.5, 32);
+            const layer2 = new THREE.Mesh(layer2Geom, cakeMaterial);
+            layer2.position.y = 1.5;
+            layer2.castShadow = true;
+            layer2.receiveShadow = true;
+            cake.add(layer2);
+            
+            // Icing drips (decorative spheres)
+            for (let i = 0; i < 16; i++) {
+                const dripGeom = new THREE.SphereGeometry(0.3, 16, 16);
+                const drip = new THREE.Mesh(dripGeom, icingMaterial);
+                const angle = (i / 16) * Math.PI * 2;
+                drip.position.set(Math.cos(angle) * 2.8, 0.6, Math.sin(angle) * 2.8);
+                layer1.add(drip); // Add to layer1 so it moves with it if cake moves
+
+                const drip2 = new THREE.Mesh(dripGeom, icingMaterial);
+                drip2.position.set(Math.cos(angle) * 2.3, 2.1, Math.sin(angle) * 2.3);
+                layer2.add(drip2);
+            }
+
+
+            // Cake Slice (a wedge)
+            const sliceShape = new THREE.Shape();
+            sliceShape.moveTo(0, 0);
+            sliceShape.lineTo(2, 0); // Base of the wedge
+            sliceShape.arc(0,0, 2, 0, Math.PI/6, false); // Arc for the outer edge
+            sliceShape.lineTo(0,0); // Close the shape
+
+            const extrudeSettings = { depth: 1.4, bevelEnabled: false }; // height of the slice
+            const sliceGeometry = new THREE.ExtrudeGeometry(sliceShape, extrudeSettings);
+            cakeSlice = new THREE.Mesh(sliceGeometry, new THREE.MeshStandardMaterial({ color: 0xf4a460, roughness: 0.5, metalness: 0.1 })); // SandyBrown (inner cake color)
+            cakeSlice.castShadow = true;
+            cakeSlice.receiveShadow = true;
+            
+            // Position and orient the slice to look like it's part of the cake
+            cakeSlice.rotation.x = -Math.PI / 2; // Lay it flat
+            cakeSlice.rotation.z = -Math.PI / 12; // Angle it slightly
+            cakeSlice.position.set(0.1, 1.55, 0.1); // Position it on top layer
+            
+            // Initially, the slice is part of the cake (or hidden/scaled down)
+            // For the "cut itself" animation, we'll move this slice.
+            // For simplicity, we'll make it separate and animate its position.
+            cakeSlice.position.set(100, 100, 100); // Start off-screen
+            
+            cake.add(cakeSlice); // Add slice to cake group for now, will detach for animation
+
+            cake.position.y = -2;
+            scene.add(cake);
+            camera.lookAt(cake.position);
+        }
+
+        function createGiftBox() {
+            giftBox = new THREE.Group();
+
+            const boxMaterial = new THREE.MeshStandardMaterial({ color: 0xdb7093, roughness: 0.4, metalness: 0.2 }); // PaleVioletRed
+            const ribbonMaterial = new THREE.MeshStandardMaterial({ color: 0xffd700, roughness: 0.2, metalness: 0.5 }); // Gold
+
+            // Box Base
+            const baseGeom = new THREE.BoxGeometry(4, 3, 4);
+            const base = new THREE.Mesh(baseGeom, boxMaterial);
+            base.castShadow = true;
+            base.receiveShadow = true;
+            giftBox.add(base);
+
+            // Lid
+            const lidGeom = new THREE.BoxGeometry(4.2, 1, 4.2); // Slightly larger than base
+            lid = new THREE.Mesh(lidGeom, boxMaterial);
+            lid.position.y = 1.5 + 0.5; // base_height/2 + lid_height/2
+            lid.castShadow = true;
+            lid.receiveShadow = true;
+            
+            // Ribbon - simple bands
+            const ribbonThickness = 0.1;
+            const ribbonWidth = 0.5;
+            
+            // Vertical ribbon on lid
+            const ribbonVGeomLid = new THREE.BoxGeometry(ribbonWidth, 1 + ribbonThickness, 4.2 + ribbonThickness);
+            const ribbonVLid = new THREE.Mesh(ribbonVGeomLid, ribbonMaterial);
+            ribbonVLid.position.y = 0; // Centered on lid
+            lid.add(ribbonVLid);
+
+            // Horizontal ribbon on lid
+            const ribbonHGeomLid = new THREE.BoxGeometry(4.2 + ribbonThickness, 1 + ribbonThickness, ribbonWidth);
+            const ribbonHLid = new THREE.Mesh(ribbonHGeomLid, ribbonMaterial);
+            ribbonHLid.position.y = 0;
+            lid.add(ribbonHLid);
+            
+            // Vertical ribbon on base
+            const ribbonVGeomBase = new THREE.BoxGeometry(ribbonWidth, 3 + ribbonThickness, 4 + ribbonThickness);
+            const ribbonVBase = new THREE.Mesh(ribbonVGeomBase, ribbonMaterial);
+            ribbonVBase.position.y = 0; // Centered on base
+            base.add(ribbonVBase);
+
+            // Horizontal ribbon on base
+            const ribbonHGeomBase = new THREE.BoxGeometry(4 + ribbonThickness, 3 + ribbonThickness, ribbonWidth);
+            const ribbonHBase = new THREE.Mesh(ribbonHGeomBase, ribbonMaterial);
+            ribbonHBase.position.y = 0;
+            base.add(ribbonHBase);
+            
+            // Bow (simplified) - a couple of flattened spheres or toruses
+            const bowLoopGeom = new THREE.TorusGeometry(0.5, 0.15, 8, 20);
+            const bowLoop1 = new THREE.Mesh(bowLoopGeom, ribbonMaterial);
+            bowLoop1.position.set(-0.4, 0.55, 0); // On top of the lid
+            bowLoop1.rotation.y = Math.PI / 4;
+            lid.add(bowLoop1);
+
+            const bowLoop2 = new THREE.Mesh(bowLoopGeom, ribbonMaterial);
+            bowLoop2.position.set(0.4, 0.55, 0);
+            bowLoop2.rotation.y = -Math.PI / 4;
+            lid.add(bowLoop2);
+
+            const bowCenterGeom = new THREE.SphereGeometry(0.2, 8, 8);
+            const bowCenter = new THREE.Mesh(bowCenterGeom, ribbonMaterial);
+            bowCenter.position.y = 0.55;
+            lid.add(bowCenter);
+
+
+            giftBox.add(lid);
+            giftBox.position.y = -2; // Adjust so it sits on the "ground"
+            giftBox.visible = false; // Initially hidden
+            scene.add(giftBox);
+        }
+
+        function createFlowerBouquet() {
+            flowerBouquet = new THREE.Group();
+            const stemMaterial = new THREE.MeshStandardMaterial({ color: 0x228B22, roughness: 0.6 }); // ForestGreen
+            const flowerColors = [0xff69b4, 0xff1493, 0xda70d6, 0xffb6c1]; // HotPink, DeepPink, Orchid, LightPink
+
+            const numFlowers = 15;
+            for (let i = 0; i < numFlowers; i++) {
+                const flowerGroup = new THREE.Group();
+
+                // Stem
+                const stemHeight = Math.random() * 2 + 2; // Varying heights
+                const stemGeom = new THREE.CylinderGeometry(0.05, 0.08, stemHeight, 8);
+                const stem = new THREE.Mesh(stemGeom, stemMaterial);
+                stem.position.y = stemHeight / 2;
+                flowerGroup.add(stem);
+
+                // Flower head (simple sphere)
+                const flowerHeadGeom = new THREE.SphereGeometry(Math.random() * 0.3 + 0.4, 16, 16); // Varying sizes
+                const flowerMaterial = new THREE.MeshStandardMaterial({ 
+                    color: flowerColors[Math.floor(Math.random() * flowerColors.length)],
+                    roughness: 0.4,
+                    metalness: 0.1 
+                });
+                const flowerHead = new THREE.Mesh(flowerHeadGeom, flowerMaterial);
+                flowerHead.position.y = stemHeight + 0.3; // Atop the stem
+                flowerHead.castShadow = true;
+                flowerGroup.add(flowerHead);
+                
+                // Random placement in bouquet
+                flowerGroup.position.set(
+                    (Math.random() - 0.5) * 1.5, // Spread within bouquet
+                    0,
+                    (Math.random() - 0.5) * 1.5
+                );
+                flowerGroup.rotation.x = (Math.random() - 0.5) * 0.3;
+                flowerGroup.rotation.z = (Math.random() - 0.5) * 0.3;
+
+                flowerBouquet.add(flowerGroup);
+            }
+
+            flowerBouquet.position.set(0, -1, 0); // Start inside the box
+            flowerBouquet.scale.set(0.1, 0.1, 0.1); // Start small
+            flowerBouquet.visible = false;
+            giftBox.add(flowerBouquet); // Add to giftbox so it moves with it if box moves
+        }
+
+        // --- Animation Loop ---
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            animationProgress += delta;
+
+            if (cake) {
+                cake.rotation.y += delta * 0.2; // Gentle rotation
+            }
+
+            // Stage 1: Cake animation (cutting)
+            if (currentStage === 1 && cakeSlice) {
+                if (animationProgress < 0.5) { // Initial delay
+                    // Ensure slice is correctly positioned before animation
+                     if (cakeSlice.position.x > 50) { // if it's still off-screen
+                        cakeSlice.position.set(0.4, 0.75, 0); // Position it on the edge of the top layer
+                        cakeSlice.rotation.set(-Math.PI/2, 0, -Math.PI/12); // Correct orientation
+                     }
+                } else if (animationProgress < 3.5) { // Animate slice out for 3 seconds
+                    // Detach slice from cake group if not already, to move independently
+                    if (cakeSlice.parent === cake) {
+                        cake.remove(cakeSlice);
+                        scene.add(cakeSlice); // Add to scene to maintain world position
+                        // Match cake's current world position and rotation
+                        cake.getWorldPosition(cakeSlice.position);
+                        cake.getWorldQuaternion(cakeSlice.quaternion);
+                        // Then apply local offset for slice
+                        cakeSlice.position.x += 0.4 * Math.cos(cake.rotation.y - Math.PI / 12) - 0.0 * Math.sin(cake.rotation.y - Math.PI / 12);
+                        cakeSlice.position.z += 0.4 * Math.sin(cake.rotation.y - Math.PI / 12) + 0.0 * Math.cos(cake.rotation.y - Math.PI / 12);
+                        cakeSlice.position.y += 0.75; // Relative to cake's base
+                        cakeSlice.rotation.y = cake.rotation.y - Math.PI / 12; // Align with cake's rotation + slice angle
+                        cakeSlice.rotation.x = -Math.PI/2;
+                    }
+                    
+                    // Animate slice moving outwards, relative to cake's current rotation
+                    const moveSpeed = 0.5;
+                    cakeSlice.position.x += Math.cos(cake.rotation.y - Math.PI / 12) * moveSpeed * delta;
+                    cakeSlice.position.z += Math.sin(cake.rotation.y - Math.PI / 12) * moveSpeed * delta;
+                    cakeSlice.position.y -= 0.1 * delta; // Slight downward movement
+                    cakeSlice.rotation.z -= 0.2 * delta; // Tilt a bit
+                } else if (animationProgress >= 3.5 && currentStage === 1) {
+                    birthdayMessage.classList.remove('visible');
+                    if (cake) scene.remove(cake);
+                    if (cakeSlice) scene.remove(cakeSlice);
+                    cake = null; cakeSlice = null; // Cleanup
+                    
+                    currentStage = 2;
+                    createGiftBox();
+                    giftBox.visible = true;
+                    camera.position.set(0, 3, 10); // Adjust camera for gift box
+                    camera.lookAt(giftBox.position);
+                    giftMessage.classList.add('visible');
+                    animationProgress = 0; // Reset for next animation
+                }
+            }
+
+            // Stage 3: Gift box opening animation
+            if (currentStage === 3 && lid) {
+                if (animationProgress < 2) { // 2 seconds to open
+                    // Lid opens by rotating around its back edge
+                    // To do this properly, we'd parent the lid to an Object3D at the hinge point.
+                    // Simple rotation for now:
+                    lid.rotation.x = Math.min(lid.rotation.x + delta * (Math.PI / 2), Math.PI * 0.7); // Open up to ~120 degrees
+                    lid.position.z -= delta * 0.8; // Move back slightly
+                    lid.position.y += delta * 0.3; // Move up slightly
+                } else {
+                    currentStage = 4; // Move to flower reveal
+                    createFlowerBouquet();
+                    flowerBouquet.visible = true;
+                    animationProgress = 0;
+                }
+            }
+
+            // Stage 4: Flower bouquet reveal
+            if (currentStage === 4 && flowerBouquet) {
+                if (animationProgress < 3) { // 3 seconds for bouquet to rise and scale
+                    flowerBouquet.position.y = Math.min(flowerBouquet.position.y + delta * 1.5, 3); // Rise up
+                    const scale = Math.min(flowerBouquet.scale.x + delta * 0.5, 1); // Scale up
+                    flowerBouquet.scale.set(scale, scale, scale);
+                } else if (animationProgress >=3 && currentStage === 4) {
+                    currentStage = 5;
+                    finalMessage.classList.add('visible');
+                    // Optional: make bouquet gently sway
+                }
+            }
+            
+            if (currentStage === 5 && flowerBouquet) { // Gentle sway for bouquet
+                flowerBouquet.rotation.y += delta * 0.1;
+                flowerBouquet.rotation.x = Math.sin(clock.elapsedTime * 0.5) * 0.05;
+            }
+
+
+            if (renderer) renderer.render(scene, camera);
+        }
+
+        // --- Event Handlers ---
+        function onWindowResize() {
+            if (camera && renderer) {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        }
+
+        function onCanvasClick(event) {
+            if (currentStage !== 2 || !giftBox || !lid) return; // Only active for gift box stage
+
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+
+            const intersects = raycaster.intersectObjects([lid, ...giftBox.children.filter(c => c !== lid)], true); // Check lid first, then base parts
+
+            if (intersects.length > 0) {
+                // Check if the lid or box base was clicked
+                let clickedLidOrBox = false;
+                for(let i=0; i < intersects.length; i++) {
+                    if(intersects[i].object === lid || giftBox.children.includes(intersects[i].object) ) {
+                        clickedLidOrBox = true;
+                        break;
+                    }
+                }
+
+                if(clickedLidOrBox){
+                    giftMessage.classList.remove('visible');
+                    currentStage = 3; // Start opening animation
+                    animationProgress = 0;
+                }
+            }
+        }
+
+    </script>
+</body>
+</html>
